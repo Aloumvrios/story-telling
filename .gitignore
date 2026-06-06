@@ -1,0 +1,24 @@
+# Build
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Python
+**/.venv/
+**/.venv-asr/
+**/.pytest_cache/
+__pycache__/
+*.pyc
+
+# Session data (audio, transcripts, generated images)
+data/
+
+# IDE / OS
+.idea/
+*.iml
+.DS_Store
+
+# Secrets
+.env
+
+

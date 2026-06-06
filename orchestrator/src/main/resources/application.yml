@@ -1,0 +1,40 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: story-telling
+  servlet:
+    multipart:
+      max-file-size: 2GB
+      max-request-size: 2GB
+  thymeleaf:
+    cache: false
+
+storytelling:
+  data-dir: ./data
+  transcription:
+    base-url: http://localhost:8001
+    model: large-v3
+    glossary: ""   # comma-separated DnD terms/names to bias Whisper, e.g. "Tiefling,Waterdeep,Lyra"
+    connect-timeout-seconds: 10
+    read-timeout-seconds: 3600   # large-v3 on long audio can run many minutes
+  image:
+    base-url: http://localhost:8002
+    style-prompt: "fantasy concept art, painterly, dramatic lighting, highly detailed, artstation"
+    negative-prompt: "lowres, blurry, text, watermark, deformed"
+    connect-timeout-seconds: 10
+    read-timeout-seconds: 1200
+  llm:
+    base-url: http://localhost:11434
+    model: llama3.1:8b
+    temperature: 0.7
+  narration:
+    chunk-size-chars: 9000
+    chunk-overlap-chars: 500
+
+logging:
+  level:
+    com.storytelling: INFO
+
+

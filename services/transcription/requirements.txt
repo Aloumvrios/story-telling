@@ -1,0 +1,12 @@
+# Transcription + diarization service — Apple Silicon
+# Uses faster-whisper (CTranslate2) + pyannote.audio directly, avoiding whisperx's
+# brittle dependency pins (it forced av==11 which can't build against modern ffmpeg).
+# Install ffmpeg first:  brew install ffmpeg
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+faster-whisper==1.0.3
+pyannote.audio>=3.1,<4
+requests>=2.31  # faster-whisper imports it but newer huggingface-hub no longer pulls it in
+
+

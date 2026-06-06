@@ -1,0 +1,45 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.3.5'
+    id 'io.spring.dependency-management' version '1.1.6'
+}
+
+group = 'com.storytelling'
+version = '0.1.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    // langchain4j: LLM integration + structured outputs (used as a toolkit, not agents)
+    implementation platform('dev.langchain4j:langchain4j-bom:0.36.2')
+    implementation 'dev.langchain4j:langchain4j'
+    implementation 'dev.langchain4j:langchain4j-ollama'
+
+    // Required by spring-web's MultipartBodyBuilder (references org.reactivestreams.Publisher).
+    implementation 'org.reactivestreams:reactive-streams:1.0.4'
+
+    // Apache HttpComponents: gives RestClient a multipart writer that FastAPI's
+    // UploadFile accepts (the default HttpURLConnection-based factory does not).
+    implementation 'org.apache.httpcomponents.client5:httpclient5'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+
+

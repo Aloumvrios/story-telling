@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <title>DnD Story Teller</title>
+    <link rel="stylesheet" th:href="@{/style.css}"/>
+</head>
+<body>
+<header>
+    <h1>🐉 DnD Story Teller</h1>
+    <p class="muted">Audio → transcript → narrated chronicle → scene illustrations. All local.</p>
+</header>
+
+<section class="card">
+    <h2>New session</h2>
+    <p th:if="${error}" class="error" th:text="${error}"></p>
+    <form method="post" th:action="@{/sessions}" enctype="multipart/form-data">
+        <input type="file" name="audio" accept="audio/*" required/>
+        <button type="submit">Upload & transcribe</button>
+    </form>
+</section>
+
+<section class="card">
+    <h2>Sessions</h2>
+    <table>
+        <thead><tr><th>ID</th><th>Audio</th><th>Status</th><th>Created</th><th></th></tr></thead>
+        <tbody>
+        <tr th:each="s : ${sessions}">
+            <td th:text="${s.id}"></td>
+            <td th:text="${s.originalAudioFilename}"></td>
+            <td><span class="badge" th:text="${s.status}"></span></td>
+            <td th:text="${s.createdAt}"></td>
+            <td><a th:href="@{'/sessions/' + ${s.id}}">open →</a></td>
+        </tr>
+        <tr th:if="${#lists.isEmpty(sessions)}"><td colspan="5" class="muted">No sessions yet.</td></tr>
+        </tbody>
+    </table>
+</section>
+</body>
+</html>
+

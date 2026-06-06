@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <title th:text="'Session ' + ${story.id}">Session</title>
+    <link rel="stylesheet" th:href="@{/style.css}"/>
+    <!-- Auto-refresh while work is in progress -->
+    <meta http-equiv="refresh" content="8" th:if="${autoRefresh}"/>
+</head>
+<body>
+<header>
+    <h1>🐉 Session <span th:text="${story.id}"></span></h1>
+    <p><a th:href="@{/}">← all sessions</a></p>
+    <p>Status: <span class="badge" th:text="${story.status}"></span></p>
+    <p th:if="${story.errorMessage != null and story.status.name() == 'FAILED'}" class="error" th:text="${story.errorMessage}"></p>
+</header>
+
+<!-- Speaker labeling step -->
+<section class="card" th:if="${story.status.name() == 'AWAITING_LABELS'}">
+    <h2>Who's who?</h2>
+    <p class="muted">Map each detected voice to a player and/or character. This greatly improves the narration.</p>
+    <form method="post" th:action="@{'/sessions/' + ${story.id} + '/labels'}">
+        <table>
+            <thead><tr><th>Voice</th><th>Player</th><th>Character</th></tr></thead>
+            <tbody>
+            <tr th:each="sp : ${speakers}">
+                <td th:text="${sp}"></td>
+                <td><input type="text" th:name="'player_' + ${sp}" placeholder="e.g. Alice"/></td>
+                <td><input type="text" th:name="'character_' + ${sp}" placeholder="e.g. Lyra the Rogue"/></td>
+            </tr>
+            </tbody>
+        </table>
+        <button type="submit">Save & generate chronicle</button>
+    </form>
+</section>
+
+<!-- Narration -->
+<section class="card" th:if="${story.narration}">
+    <h2>Chronicle</h2>
+    <div class="prose" th:text="${story.narration}"></div>
+</section>
+
+<!-- Scenes gallery -->
+<section class="card" th:if="${!#lists.isEmpty(story.scenes)}">
+    <h2>Scenes</h2>
+    <div class="gallery">
+        <figure th:each="scene, it : ${story.scenes}">
+            <img th:if="${scene.imagePath}"
+                 th:src="@{'/sessions/' + ${story.id} + '/images/' + ${#strings.substringAfter(scene.imagePath, 'images/')}}"
+                 th:alt="${scene.title}"/>
+            <div th:unless="${scene.imagePath}" class="placeholder">rendering…</div>
+            <figcaption>
+                <strong th:text="${scene.title}"></strong>
+                <p th:text="${scene.narration}"></p>
+            </figcaption>
+        </figure>
+    </div>
+</section>
+
+<!-- Transcript -->
+<section class="card" th:if="${story.transcript}">
+    <h2>Transcript <span class="muted" th:text="'(' + ${story.transcript.segments.size()} + ' segments)'"></span></h2>
+    <details>
+        <summary>Show raw diarized transcript</summary>
+        <div class="transcript">
+            <p th:each="seg : ${story.transcript.segments}">
+                <span class="speaker" th:text="${seg.speaker}"></span>
+                <span th:text="${seg.text}"></span>
+            </p>
+        </div>
+    </details>
+</section>
+</body>
+</html>
+
+
+
+
+

@@ -1,0 +1,3 @@
+// Root build file. Configuration lives in the :orchestrator subproject.
+// The Python ML services under services/ are managed with their own venv/requirements.
+
