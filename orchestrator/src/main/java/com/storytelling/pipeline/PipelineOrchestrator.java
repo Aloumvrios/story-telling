@@ -1,17 +1,5 @@
 package com.storytelling.pipeline;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Async;
-import org.springframework.stereotype.Service;
-
 import com.storytelling.client.ImageClient;
 import com.storytelling.client.TranscriptionClient;
 import com.storytelling.config.AppProperties;
@@ -22,6 +10,16 @@ import com.storytelling.model.Session;
 import com.storytelling.model.SessionStatus;
 import com.storytelling.model.TranscriptResult;
 import com.storytelling.store.SessionStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Service;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Drives the three pipeline stages. Each stage persists progress so a long
@@ -75,66 +73,194 @@ public class PipelineOrchestrator {
         }
     }
 
-    /** Stages 2 & 3: narration + scene segmentation + image generation. Runs async. */
+    // ----------------------------------------------------------------------
+    // Public stage runners. Each is async and can be invoked individually
+    // (step-by-step mode) or chained (full pipeline). They end on an idle
+    // checkpoint status so the user can review/edit before the next stage.
+    // ----------------------------------------------------------------------
+
+    /** Full remaining pipeline after labels: narration -> segmentation -> images. */
     @Async("pipelineExecutor")
     public void runNarrationAndImages(String sessionId) {
         Session session = require(sessionId);
         try {
-            // ----- Stage 2a: map-reduce narration -----
-            session.setErrorMessage(null); // clear any error from a previous attempt
-            session.setStatus(SessionStatus.NARRATING);
-            store.save(session);
-
-            String rendered = TranscriptFormatter.render(session.getTranscript(), session.getSpeakerLabels());
-            List<String> chunks = TranscriptFormatter.chunk(rendered, props.getNarration());
-            log.info("[{}] narrating in {} chunks", sessionId, chunks.size());
-
-            String storySoFar = "";
-            StringBuilder full = new StringBuilder();
-            for (int i = 0; i < chunks.size(); i++) {
-                log.info("[{}] narrating chunk {}/{}", sessionId, i + 1, chunks.size());
-                String beat = narrationAssistant.summarizeChunk(storySoFar, chunks.get(i));
-                full.append(beat).append("\n\n");
-                storySoFar = tail(full.toString(), 2000); // rolling context window
-            }
-            String narration = full.toString().strip();
-            session.setNarration(narration);
-
-            // ----- Stage 2b: scene segmentation (structured output) -----
-            session.setStatus(SessionStatus.SEGMENTING);
-            store.save(session);
-            SceneList sceneList = narrationAssistant.segmentScenes(narration);
-            session.setScenes(new ArrayList<>(sceneList.scenes()));
-            store.save(session);
-            log.info("[{}] segmented into {} scenes", sessionId, session.getScenes().size());
-
-            // ----- Stage 3: one image per scene -----
-            session.setStatus(SessionStatus.GENERATING_IMAGES);
-            store.save(session);
-            Path imagesDir = store.imagesDir(sessionId);
-            Files.createDirectories(imagesDir);
-
-            List<SceneSpec> scenes = session.getScenes();
-            List<SceneSpec> withImages = new ArrayList<>();
-            for (int i = 0; i < scenes.size(); i++) {
-                SceneSpec scene = scenes.get(i);
-                log.info("[{}] image {}/{}: {}", sessionId, i + 1, scenes.size(), scene.title());
-                byte[] png = imageClient.generate(scene.imagePrompt());
-                String filename = String.format("scene_%02d.png", i + 1);
-                Files.write(imagesDir.resolve(filename), png);
-                withImages.add(new SceneSpec(scene.title(), scene.narration(),
-                        scene.imagePrompt(), scene.characters(), "images/" + filename));
-                session.setScenes(withImages.size() == scenes.size() ? withImages : merge(withImages, scenes));
-                store.save(session); // persist after each image (resumable)
-            }
-            session.setScenes(withImages);
-
-            session.setStatus(SessionStatus.COMPLETED);
-            store.save(session);
-            log.info("[{}] completed", sessionId);
+            narrate(session);
+            segment(session);
+            images(session);
+            complete(session);
         } catch (Throwable e) {
             fail(session, e, "narration/images");
         }
+    }
+
+    /** Step only: build the narration from the transcript. Ends at NARRATED. */
+    @Async("pipelineExecutor")
+    public void runNarration(String sessionId) {
+        Session session = require(sessionId);
+        try {
+            narrate(session);
+            session.setStatus(SessionStatus.NARRATED);
+            store.save(session);
+        } catch (Throwable e) {
+            fail(session, e, "narration");
+        }
+    }
+
+    /** Step only: segment the existing narration into scenes. Ends at SEGMENTED. */
+    @Async("pipelineExecutor")
+    public void runSegmentation(String sessionId) {
+        Session session = require(sessionId);
+        try {
+            segment(session);
+            session.setStatus(SessionStatus.SEGMENTED);
+            store.save(session);
+        } catch (Throwable e) {
+            fail(session, e, "segmentation");
+        }
+    }
+
+    /** Segmentation then images (full from the narration checkpoint). */
+    @Async("pipelineExecutor")
+    public void runSegmentationAndImages(String sessionId) {
+        Session session = require(sessionId);
+        try {
+            segment(session);
+            images(session);
+            complete(session);
+        } catch (Throwable e) {
+            fail(session, e, "segmentation/images");
+        }
+    }
+
+    /** Step only: generate one image per existing scene. Ends at COMPLETED. */
+    @Async("pipelineExecutor")
+    public void runImages(String sessionId) {
+        Session session = require(sessionId);
+        try {
+            images(session);
+            complete(session);
+        } catch (Throwable e) {
+            fail(session, e, "images");
+        }
+    }
+
+    // ----------------------------------------------------------------------
+    // Stage implementations (synchronous; run on the pipeline executor thread).
+    // ----------------------------------------------------------------------
+
+    /** Stage 2a: map-reduce narration from the diarized, labeled transcript. */
+    private void narrate(Session session) throws Exception {
+        if (session.getTranscript() == null) {
+            throw new IllegalStateException("No transcript available to narrate.");
+        }
+        session.setErrorMessage(null); // clear any error from a previous attempt
+        session.setStatus(SessionStatus.NARRATING);
+        store.save(session);
+
+        String rendered = TranscriptFormatter.render(session.getTranscript(), session.getSpeakerLabels());
+        List<String> chunks = TranscriptFormatter.chunk(rendered, props.getNarration());
+        log.info("[{}] narrating in {} chunks", session.getId(), chunks.size());
+
+        String storySoFar = "";
+        StringBuilder full = new StringBuilder();
+        for (int i = 0; i < chunks.size(); i++) {
+            log.info("[{}] narrating chunk {}/{}", session.getId(), i + 1, chunks.size());
+            String beat = narrationAssistant.summarizeChunk(storySoFar, chunks.get(i));
+            full.append(beat).append("\n\n");
+            storySoFar = tail(full.toString(), 2000); // rolling context window
+        }
+        session.setNarration(full.toString().strip());
+        store.save(session);
+    }
+
+    /** Stage 2b: scene segmentation (structured output) from the narration. */
+    private void segment(Session session) {
+        String narration = session.getNarration();
+        if (narration == null || narration.isBlank()) {
+            throw new IllegalStateException("No narration available to segment.");
+        }
+        session.setErrorMessage(null);
+        session.setStatus(SessionStatus.SEGMENTING);
+        store.save(session);
+
+        Integer count = session.getRequestedSceneCount();
+        SceneList sceneList = (count != null && count > 0)
+                ? narrationAssistant.segmentScenesInto(narration, count)
+                : narrationAssistant.segmentScenes(narration);
+        session.setScenes(new ArrayList<>(sceneList.scenes()));
+        store.save(session);
+        log.info("[{}] segmented into {} scenes{}", session.getId(), session.getScenes().size(),
+                (count != null && count > 0) ? " (requested " + count + ")" : "");
+    }
+
+    /** Stage 3: one image per scene, persisted incrementally (resumable). */
+    private void images(Session session) throws Exception {
+        List<SceneSpec> scenes = session.getScenes();
+        if (scenes == null || scenes.isEmpty()) {
+            throw new IllegalStateException("No scenes available to illustrate.");
+        }
+        session.setErrorMessage(null);
+        session.setStatus(SessionStatus.GENERATING_IMAGES);
+        store.save(session);
+
+        Path imagesDir = store.imagesDir(session.getId());
+        Files.createDirectories(imagesDir);
+
+        Map<String, String> characterContext = characterContext(session);
+        List<SceneSpec> withImages = new ArrayList<>();
+        for (int i = 0; i < scenes.size(); i++) {
+            SceneSpec scene = scenes.get(i);
+            String prompt = withCharacterContext(scene, characterContext);
+            log.info("[{}] image {}/{}: {}", session.getId(), i + 1, scenes.size(), scene.title());
+            byte[] png = imageClient.generate(prompt);
+            String filename = String.format("scene_%02d.png", i + 1);
+            Files.write(imagesDir.resolve(filename), png);
+            withImages.add(new SceneSpec(scene.title(), scene.narration(),
+                    scene.imagePrompt(), scene.characters(), "images/" + filename));
+            session.setScenes(withImages.size() == scenes.size() ? withImages : merge(withImages, scenes));
+            store.save(session); // persist after each image (resumable)
+        }
+        session.setScenes(withImages);
+    }
+
+    /** Lower-cased name -> appearance, for matching scene characters case-insensitively. */
+    private static Map<String, String> characterContext(Session session) {
+        Map<String, String> map = new java.util.HashMap<>();
+        if (session.getCharacterProfiles() == null) return map;
+        for (var p : session.getCharacterProfiles()) {
+            if (p.name() != null && p.appearance() != null && !p.appearance().isBlank()) {
+                map.put(p.name().strip().toLowerCase(), p.appearance().strip());
+            }
+        }
+        return map;
+    }
+
+    /**
+     * Appends the appearance descriptions of the characters present in a scene to
+     * its image prompt, so Stable Diffusion renders them consistently across scenes.
+     */
+    private static String withCharacterContext(SceneSpec scene, Map<String, String> context) {
+        if (context.isEmpty() || scene.characters() == null || scene.characters().isEmpty()) {
+            return scene.imagePrompt();
+        }
+        StringBuilder details = new StringBuilder();
+        for (String character : scene.characters()) {
+            if (character == null) continue;
+            String appearance = context.get(character.strip().toLowerCase());
+            if (appearance != null) {
+                if (details.length() > 0) details.append("; ");
+                details.append(character.strip()).append(": ").append(appearance);
+            }
+        }
+        return details.length() == 0
+                ? scene.imagePrompt()
+                : scene.imagePrompt() + ". Character appearance — " + details + ".";
+    }
+
+    private void complete(Session session) {
+        session.setStatus(SessionStatus.COMPLETED);
+        store.save(session);
+        log.info("[{}] completed", session.getId());
     }
 
     private static List<SceneSpec> merge(List<SceneSpec> done, List<SceneSpec> all) {

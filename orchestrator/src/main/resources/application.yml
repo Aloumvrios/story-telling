@@ -32,6 +32,13 @@ storytelling:
   narration:
     chunk-size-chars: 9000
     chunk-overlap-chars: 500
+  voice:
+    # Recognise returning voices and suggest the campaign character at labeling
+    # time. Requires the transcription service to return speaker embeddings
+    # (ASR_EMBEDDINGS=1) and diarization to be enabled (HF_TOKEN set).
+    enabled: false
+    match-threshold: 0.6
+    max-voiceprints-per-character: 10
 
 logging:
   level:

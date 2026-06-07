@@ -8,9 +8,12 @@ public enum SessionStatus {
     TRANSCRIBING,
     AWAITING_LABELS,    // transcript ready; waiting for the user to name speakers/characters
     NARRATING,          // building third-person narration (map-reduce)
+    NARRATED,           // narration ready; idle checkpoint (step-by-step mode)
     SEGMENTING,         // splitting narration into scenes + image prompts
+    SEGMENTED,          // scenes ready; idle checkpoint (step-by-step mode)
     GENERATING_IMAGES,
     COMPLETED,
     FAILED
 }
+
 

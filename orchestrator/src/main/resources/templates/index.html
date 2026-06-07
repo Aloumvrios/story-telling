@@ -9,30 +9,113 @@
 <header>
     <h1>🐉 DnD Story Teller</h1>
     <p class="muted">Audio → transcript → narrated chronicle → scene illustrations. All local.</p>
+    <p><a th:href="@{/campaigns}">🛡️ Manage campaigns &amp; characters →</a></p>
 </header>
+
+<p th:if="${message != null}" class="notice" th:text="${message}"></p>
+<p th:if="${error != null}" class="error" th:text="${error}"></p>
 
 <section class="card">
     <h2>New session</h2>
-    <p th:if="${error}" class="error" th:text="${error}"></p>
     <form method="post" th:action="@{/sessions}" enctype="multipart/form-data">
         <input type="file" name="audio" accept="audio/*" required/>
+        <p class="field" th:if="${!#lists.isEmpty(campaigns)}">
+            <label for="campaignId">Campaign</label>
+            <select name="campaignId" id="campaignId">
+                <option value="">— none —</option>
+                <option th:each="c : ${campaigns}" th:value="${c.id}" th:text="${c.name}"></option>
+            </select>
+            <span class="muted">Pick a campaign to label speakers from its characters.</span>
+        </p>
         <button type="submit">Upload & transcribe</button>
     </form>
+    <div th:if="${!#lists.isEmpty(audioSessions)}">
+        <p class="muted">… or reuse audio you already uploaded (no need to upload again):</p>
+        <form method="post" th:action="@{/sessions/reuse-audio}" class="field">
+            <select name="sourceId">
+                <option th:each="s : ${audioSessions}" th:value="${s.id}"
+                        th:text="${s.originalAudioFilename} + ' — ' + ${s.id}"></option>
+            </select>
+            <button type="submit">Reuse & transcribe</button>
+        </form>
+    </div>
+    <p class="muted">After transcription you'll label the speakers, then choose to run the
+        <strong>full pipeline</strong> or go <strong>step by step</strong>.</p>
+</section>
+
+<section class="card">
+    <h2>… or start from an intermediate step</h2>
+    <p class="muted">Already have a transcript, narration, or scenes? Jump straight in.</p>
+
+    <details>
+        <summary>Start from a transcript</summary>
+        <form method="post" th:action="@{/sessions/from-transcript}">
+            <p class="muted">One line per utterance, e.g. <code>Lyra: We should rest here.</code></p>
+            <textarea name="transcript" rows="6"
+                      placeholder="SPEAKER_00: We should rest here.&#10;SPEAKER_01: Agreed, the road has been long."></textarea>
+            <button type="submit">Create & label speakers</button>
+        </form>
+    </details>
+
+    <details>
+        <summary>Start from a narration</summary>
+        <form method="post" th:action="@{/sessions/from-narration}">
+            <p class="muted">Paste a finished third-person chronicle to segment into scenes.</p>
+            <textarea name="narration" rows="6"
+                      placeholder="The party descended into the cavern, torchlight flickering against damp stone…"></textarea>
+            <button type="submit">Create & ready to segment</button>
+        </form>
+    </details>
+
+    <details>
+        <summary>Start from scenes (JSON)</summary>
+        <form method="post" th:action="@{/sessions/from-scenes}">
+            <p class="muted">A JSON array of scenes. Each needs at least an <code>imagePrompt</code>.</p>
+            <textarea name="scenesJson" rows="8"
+                      placeholder='[{"title":"The Cavern Mouth","narration":"…","imagePrompt":"a dark cavern entrance, torchlight, fantasy art","characters":["Lyra"],"imagePath":""}]'></textarea>
+            <button type="submit">Create & ready for images</button>
+        </form>
+    </details>
 </section>
 
 <section class="card">
     <h2>Sessions</h2>
     <table>
-        <thead><tr><th>ID</th><th>Audio</th><th>Status</th><th>Created</th><th></th></tr></thead>
+        <thead><tr><th>ID</th><th>Audio</th><th>Campaign</th><th>Status</th><th>Created</th><th></th><th>Reuse</th><th></th></tr></thead>
         <tbody>
         <tr th:each="s : ${sessions}">
             <td th:text="${s.id}"></td>
             <td th:text="${s.originalAudioFilename}"></td>
+            <td>
+                <a th:if="${s.campaignId != null and campaignNames.containsKey(s.campaignId)}"
+                   th:href="@{'/campaigns/' + ${s.campaignId}}" th:text="${campaignNames.get(s.campaignId)}"></a>
+                <span th:unless="${s.campaignId != null and campaignNames.containsKey(s.campaignId)}" class="muted">—</span>
+            </td>
             <td><span class="badge" th:text="${s.status}"></span></td>
             <td th:text="${s.createdAt}"></td>
             <td><a th:href="@{'/sessions/' + ${s.id}}">open →</a></td>
+            <td>
+                <form method="post" th:action="@{'/sessions/' + ${s.id} + '/fork'}" class="reuse-form"
+                      th:if="${audioIds.contains(s.id) or s.transcript != null or s.narration != null or !#lists.isEmpty(s.scenes)}">
+                    <select name="from">
+                        <option th:if="${audioIds.contains(s.id)}" value="audio">audio</option>
+                        <option th:if="${s.transcript != null}" value="transcript">transcript</option>
+                        <option th:if="${s.narration != null}" value="narration">narration</option>
+                        <option th:if="${!#lists.isEmpty(s.scenes)}" value="scenes">scenes</option>
+                    </select>
+                    <button type="submit" class="secondary" title="Start a new session from this stage">↻</button>
+                </form>
+                <span th:unless="${audioIds.contains(s.id) or s.transcript != null or s.narration != null or !#lists.isEmpty(s.scenes)}"
+                      class="muted">—</span>
+            </td>
+            <td>
+                <form method="post" th:action="@{'/sessions/' + ${s.id} + '/delete'}"
+                      onsubmit="return confirm('Delete this session and all its files? This cannot be undone.');">
+                    <button type="submit" class="danger" title="Delete session">🗑</button>
+                </form>
+            </td>
         </tr>
-        <tr th:if="${#lists.isEmpty(sessions)}"><td colspan="5" class="muted">No sessions yet.</td></tr>
+        <tr th:if="${#lists.isEmpty(sessions)}"><td colspan="8" class="muted">No sessions yet.</td></tr>
         </tbody>
     </table>
 </section>

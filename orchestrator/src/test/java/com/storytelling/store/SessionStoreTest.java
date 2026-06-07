@@ -75,5 +75,28 @@ class SessionStoreTest {
 
         assertThat(all).extracting(Session::getId).containsExactlyInAnyOrder("s1", "s2");
     }
+
+    @Test
+    void delete_removesSessionAndAllFiles_leavingOthersIntact() {
+        store.save(new Session("keep", "k.wav"));
+        store.save(new Session("gone", "g.wav"));
+        store.saveAudio("gone", "g.wav", new ByteArrayInputStream("audio".getBytes(StandardCharsets.UTF_8)));
+
+        boolean deleted = store.delete("gone");
+
+        assertThat(deleted).isTrue();
+        assertThat(store.load("gone")).isEmpty();
+        assertThat(store.findAudio("gone")).isEmpty();
+        assertThat(store.listAll()).extracting(Session::getId).containsExactly("keep");
+    }
+
+    @Test
+    void delete_returnsFalseForUnknownSession() {
+        assertThat(store.delete("nope")).isFalse();
+    }
 }
+
+
+
+
 

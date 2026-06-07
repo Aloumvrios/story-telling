@@ -25,6 +25,12 @@ app = FastAPI(title="transcription-service")
 # Lazy globals so the (heavy) models load once, on first request.
 _model = None
 _diarizer = None
+_embedder = None
+
+# Voice fingerprints: when enabled, return a mean embedding per speaker so the
+# orchestrator can recognise the same voice across sessions. Needs HF_TOKEN.
+EMBEDDINGS_ENABLED = os.environ.get("ASR_EMBEDDINGS", "0").strip() in ("1", "true", "yes")
+EMBEDDING_MODEL = os.environ.get("ASR_EMBEDDING_MODEL", "pyannote/embedding")
 
 
 def _device_and_compute():
@@ -50,6 +56,61 @@ def _get_diarizer():
             "pyannote/speaker-diarization-3.1", use_auth_token=token
         )
     return _diarizer
+
+
+def _get_embedder():
+    """Lazy pyannote embedding model (ECAPA-style). Returns None if unavailable."""
+    global _embedder
+    if _embedder is None:
+        try:
+            from pyannote.audio import Inference
+            token = os.environ.get("HF_TOKEN")
+            # window="whole" -> one fixed-size embedding for the whole cropped region.
+            _embedder = Inference(EMBEDDING_MODEL, window="whole", use_auth_token=token)
+        except Exception as e:  # noqa: BLE001 - embeddings are optional
+            print(f"[warn] voice embedding model unavailable: {e}")
+            _embedder = False  # sentinel: tried and failed
+    return _embedder or None
+
+
+def _speaker_embeddings(audio_path: str, turns) -> dict:
+    """
+    Mean L2-normalised embedding per speaker, computed over that speaker's
+    diarization turns. Best-effort: returns {} on any failure or when disabled.
+    """
+    if not EMBEDDINGS_ENABLED or not turns:
+        return {}
+    embedder = _get_embedder()
+    if embedder is None:
+        return {}
+    try:
+        import numpy as np
+        from pyannote.core import Segment
+
+        sums: dict = {}
+        counts: dict = {}
+        for t_start, t_end, speaker in turns:
+            if t_end - t_start < 0.5:  # skip very short turns (noisy embeddings)
+                continue
+            try:
+                vec = embedder.crop(audio_path, Segment(t_start, t_end))
+            except Exception:
+                continue
+            vec = np.asarray(vec, dtype="float32").reshape(-1)
+            sums[speaker] = vec if speaker not in sums else sums[speaker] + vec
+            counts[speaker] = counts.get(speaker, 0) + 1
+
+        result = {}
+        for speaker, total in sums.items():
+            mean = total / max(1, counts[speaker])
+            norm = float(np.linalg.norm(mean))
+            if norm > 0:
+                mean = mean / norm  # L2-normalise so cosine == dot product
+            result[speaker] = [float(x) for x in mean.tolist()]
+        return result
+    except Exception as e:  # noqa: BLE001
+        print(f"[warn] failed to compute speaker embeddings: {e}")
+        return {}
 
 
 def _assign_speaker(start: float, end: float, turns) -> str:
@@ -108,9 +169,18 @@ async def transcribe(
         for seg in segments:
             seg["speaker"] = _assign_speaker(seg["start"], seg["end"], turns) if turns else "SPEAKER_00"
 
-        return JSONResponse({"language": info.language, "segments": segments})
+        # 3) optional voice fingerprints (mean embedding per speaker)
+        speaker_embeddings = _speaker_embeddings(audio_path, turns)
+
+        return JSONResponse({
+            "language": info.language,
+            "segments": segments,
+            "speakerEmbeddings": speaker_embeddings,
+        })
     finally:
         os.unlink(audio_path)
+
+
 
 
 

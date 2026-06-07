@@ -51,5 +51,24 @@ public interface NarrationAssistant {
             ---
             """)
     SceneList segmentScenes(@V("narration") String narration);
+
+    @SystemMessage("""
+            You are a story editor. You split a finished narrative into a sequence of
+            distinct visual SCENES suitable for illustration. For each scene produce a
+            title, a 2-4 sentence third-person narration, the characters present, and a
+            detailed Stable Diffusion image prompt describing setting, characters,
+            mood and composition. Leave imagePath empty.
+            """)
+    @UserMessage("""
+            Split the following chronicle into exactly {{count}} illustratable scenes,
+            distributing the narrative as evenly as possible across them.
+
+            Chronicle:
+            ---
+            {{narration}}
+            ---
+            """)
+    SceneList segmentScenesInto(@V("narration") String narration, @V("count") int count);
 }
+
 

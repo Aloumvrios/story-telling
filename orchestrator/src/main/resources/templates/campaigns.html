@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <title>Campaigns</title>
+    <link rel="stylesheet" th:href="@{/style.css}"/>
+</head>
+<body>
+<header>
+    <h1>🛡️ Campaigns</h1>
+    <p><a th:href="@{/}">← all sessions</a></p>
+    <p class="muted">Define your party's characters once; reuse them across every recorded session.</p>
+</header>
+
+<p th:if="${message != null}" class="notice" th:text="${message}"></p>
+<p th:if="${error != null}" class="error" th:text="${error}"></p>
+
+<section class="card">
+    <h2>New campaign</h2>
+    <form method="post" th:action="@{/campaigns}" class="field">
+        <input type="text" name="name" placeholder="e.g. Curse of the Crimson Keep" required/>
+        <button type="submit">Create</button>
+    </form>
+</section>
+
+<section class="card">
+    <h2>Your campaigns</h2>
+    <table>
+        <thead><tr><th>Name</th><th>Characters</th><th>Created</th><th></th><th></th></tr></thead>
+        <tbody>
+        <tr th:each="c : ${campaigns}">
+            <td th:text="${c.name}"></td>
+            <td th:text="${#lists.size(c.characters)}"></td>
+            <td th:text="${c.createdAt}"></td>
+            <td><a th:href="@{'/campaigns/' + ${c.id}}">edit →</a></td>
+            <td>
+                <form method="post" th:action="@{'/campaigns/' + ${c.id} + '/delete'}"
+                      onsubmit="return confirm('Delete this campaign? Sessions already created keep their characters.');">
+                    <button type="submit" class="danger" title="Delete campaign">🗑</button>
+                </form>
+            </td>
+        </tr>
+        <tr th:if="${#lists.isEmpty(campaigns)}"><td colspan="5" class="muted">No campaigns yet.</td></tr>
+        </tbody>
+    </table>
+</section>
+</body>
+</html>
+
+

@@ -11,31 +11,208 @@
 <header>
     <h1>🐉 Session <span th:text="${story.id}"></span></h1>
     <p><a th:href="@{/}">← all sessions</a></p>
+    <p th:if="${campaign != null}">Campaign:
+        <a th:href="@{'/campaigns/' + ${campaign.id}}" th:text="${campaign.name}"></a></p>
     <p>Status: <span class="badge" th:text="${story.status}"></span></p>
     <p th:if="${story.errorMessage != null and story.status.name() == 'FAILED'}" class="error" th:text="${story.errorMessage}"></p>
+    <form th:if="${story.status.name() == 'FAILED'}" method="post" th:action="@{'/sessions/' + ${story.id} + '/retry'}">
+        <button type="submit">↻ Retry from failed step</button>
+    </form>
+    <form method="post" th:action="@{'/sessions/' + ${story.id} + '/delete'}"
+          onsubmit="return confirm('Delete this session and all its files? This cannot be undone.');">
+        <button type="submit" class="danger">🗑 Delete session</button>
+    </form>
 </header>
+
+<!-- Reuse this session: fork a fresh session from any available stage -->
+<section class="card"
+         th:if="${hasAudio or story.transcript != null or story.narration != null or !#lists.isEmpty(story.scenes)}">
+    <details>
+        <summary>♻️ Reuse this session</summary>
+        <p class="muted">Start a fresh session from any stage below — this session stays unchanged.</p>
+        <div class="btn-row">
+            <form th:if="${hasAudio}" method="post" th:action="@{'/sessions/' + ${story.id} + '/fork'}">
+                <input type="hidden" name="from" value="audio"/>
+                <button type="submit" class="secondary">Re-transcribe audio</button>
+            </form>
+            <form th:if="${story.transcript != null}" method="post" th:action="@{'/sessions/' + ${story.id} + '/fork'}">
+                <input type="hidden" name="from" value="transcript"/>
+                <button type="submit" class="secondary">Reuse transcript → relabel</button>
+            </form>
+            <form th:if="${story.narration != null}" method="post" th:action="@{'/sessions/' + ${story.id} + '/fork'}">
+                <input type="hidden" name="from" value="narration"/>
+                <button type="submit" class="secondary">Reuse narration → segment</button>
+            </form>
+            <form th:if="${!#lists.isEmpty(story.scenes)}" method="post" th:action="@{'/sessions/' + ${story.id} + '/fork'}">
+                <input type="hidden" name="from" value="scenes"/>
+                <button type="submit" class="secondary">Reuse scenes → generate images</button>
+            </form>
+        </div>
+    </details>
+</section>
 
 <!-- Speaker labeling step -->
 <section class="card" th:if="${story.status.name() == 'AWAITING_LABELS'}">
     <h2>Who's who?</h2>
-    <p class="muted">Map each detected voice to a player and/or character. This greatly improves the narration.</p>
+    <p class="muted">Map each detected voice to a player and/or character. This greatly improves the narration.
+        <span th:if="${hasAudio}">Click ▶ to hear a sample of each voice.</span></p>
+
+    <!-- Pick a campaign to label from its characters (works even if none was chosen at upload) -->
+    <form method="post" th:action="@{'/sessions/' + ${story.id} + '/campaign'}" class="field"
+          th:if="${!#lists.isEmpty(allCampaigns)}">
+        <label for="campaignId">Use characters from campaign</label>
+        <select name="campaignId" id="campaignId" onchange="this.form.submit()">
+            <option value="">— none (type names freely) —</option>
+            <option th:each="c : ${allCampaigns}" th:value="${c.id}" th:text="${c.name}"
+                    th:selected="${campaign != null and campaign.id == c.id}"></option>
+        </select>
+        <button type="submit" class="secondary">Apply</button>
+        <span class="muted">Don't have one yet? <a th:href="@{/campaigns}">Create a campaign →</a></span>
+    </form>
+    <p class="muted" th:if="${campaign != null}">
+        Campaign: <strong th:text="${campaign.name}"></strong> — pick characters from the dropdown.</p>
+    <!-- Hidden shared player; used to preview a speaker's slice -->
+    <audio th:if="${hasAudio}" id="voicePlayer" preload="none"
+           th:src="@{'/sessions/' + ${story.id} + '/audio'}"></audio>
     <form method="post" th:action="@{'/sessions/' + ${story.id} + '/labels'}">
         <table>
-            <thead><tr><th>Voice</th><th>Player</th><th>Character</th></tr></thead>
+            <thead><tr>
+                <th th:if="${hasAudio}">Sample</th>
+                <th>Voice</th><th>Player</th><th>Character</th>
+            </tr></thead>
             <tbody>
-            <tr th:each="sp : ${speakers}">
-                <td th:text="${sp}"></td>
-                <td><input type="text" th:name="'player_' + ${sp}" placeholder="e.g. Alice"/></td>
-                <td><input type="text" th:name="'character_' + ${sp}" placeholder="e.g. Lyra the Rogue"/></td>
+            <tr th:each="sp : ${speakerSamples}">
+                <td th:if="${hasAudio}">
+                    <button type="button" class="play-sample"
+                            th:attr="data-start=${sp.start}, data-end=${sp.end}"
+                            th:title="'Play ' + ${sp.speaker}">▶</button>
+                </td>
+                <td th:text="${sp.speaker}"></td>
+                <td><input type="text" th:name="'player_' + ${sp.speaker}" th:id="'player_' + ${sp.speaker}"
+                           th:value="${existingLabels[sp.speaker]?.player}" placeholder="e.g. Alice"/></td>
+                <!-- Campaign present: choose from its characters -->
+                <td th:if="${!#lists.isEmpty(campaignCharacters)}">
+                    <select class="char-select" th:name="'character_' + ${sp.speaker}"
+                            th:attr="data-player-target='player_' + ${sp.speaker}">
+                        <option value="">— select character —</option>
+                        <option th:each="cc : ${campaignCharacters}" th:value="${cc.name}"
+                                th:attr="data-player=${cc.player}"
+                                th:selected="${(existingLabels[sp.speaker] != null and existingLabels[sp.speaker].character == cc.name)
+                                               or (existingLabels[sp.speaker] == null and suggestedCharacters[sp.speaker] == cc.name)}"
+                                th:text="${cc.player != null and !cc.player.isEmpty()} ? (${cc.name} + ' (' + ${cc.player} + ')') : ${cc.name}"></option>
+                    </select>
+                    <span class="muted" th:if="${suggestedCharacters[sp.speaker] != null}"
+                          th:title="'Suggested from a recognised voice'">🔎 suggested</span>
+                </td>
+                <!-- No campaign: free-text character -->
+                <td th:unless="${!#lists.isEmpty(campaignCharacters)}">
+                    <input type="text" th:name="'character_' + ${sp.speaker}"
+                           th:value="${existingLabels[sp.speaker]?.character}" placeholder="e.g. Lyra the Rogue"/>
+                </td>
             </tr>
             </tbody>
         </table>
-        <button type="submit">Save & generate chronicle</button>
+        <div class="btn-row">
+            <button type="submit" name="mode" value="step">Save & narrate (step by step)</button>
+            <button type="submit" name="mode" value="full" class="secondary">Save & run full pipeline →</button>
+        </div>
+    </form>
+    <script>
+        // Auto-fill the player field when a campaign character is selected.
+        document.querySelectorAll('.char-select').forEach(function (sel) {
+            sel.addEventListener('change', function () {
+                var opt = sel.options[sel.selectedIndex];
+                var player = opt ? opt.getAttribute('data-player') : '';
+                var targetId = sel.getAttribute('data-player-target');
+                var input = targetId ? document.getElementById(targetId) : null;
+                if (input && player) input.value = player;
+            });
+        });
+    </script>
+    <script th:if="${hasAudio}">
+        (function () {
+            var player = document.getElementById('voicePlayer');
+            var stopAt = null;
+            document.querySelectorAll('.play-sample').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    var start = parseFloat(btn.getAttribute('data-start')) || 0;
+                    var end = parseFloat(btn.getAttribute('data-end'));
+                    stopAt = isNaN(end) ? null : end;
+                    var play = function () {
+                        try { player.currentTime = start; } catch (e) { /* seek before metadata */ }
+                        player.play();
+                    };
+                    if (player.readyState >= 1) {
+                        play();
+                    } else {
+                        player.addEventListener('loadedmetadata', play, { once: true });
+                        player.load();
+                    }
+                });
+            });
+            player.addEventListener('timeupdate', function () {
+                if (stopAt !== null && player.currentTime >= stopAt) {
+                    player.pause();
+                    stopAt = null;
+                }
+            });
+        })();
+    </script>
+</section>
+
+<!-- Checkpoint: narration ready, choose next step -->
+<section class="card" th:if="${story.status.name() == 'NARRATED'}">
+    <h2>Narration ready — next step</h2>
+    <p class="muted">Edit the chronicle below if you like, then segment it into scenes.</p>
+    <form method="post" th:action="@{'/sessions/' + ${story.id} + '/run-segmentation'}">
+        <textarea name="narration" rows="14" th:text="${story.narration}"></textarea>
+        <p class="field">
+            <label for="sceneCount">Number of scenes</label>
+            <input type="number" id="sceneCount" name="sceneCount" min="1" max="40"
+                   th:value="${story.requestedSceneCount}" placeholder="auto (5–12)"/>
+            <span class="muted">Leave blank to let the model decide, like the full pipeline.</span>
+        </p>
+        <div class="btn-row">
+            <button type="submit" name="mode" value="step">Segment into scenes</button>
+            <button type="submit" name="mode" value="full" class="secondary">Segment & generate images →</button>
+        </div>
+    </form>
+</section>
+
+<!-- Checkpoint: scenes ready, generate images -->
+<section class="card" th:if="${story.status.name() == 'SEGMENTED'}">
+    <h2>Scenes ready — generate images</h2>
+    <p class="muted">Review or edit the scenes JSON, then generate one image per scene.</p>
+    <form method="post" th:action="@{'/sessions/' + ${story.id} + '/run-images'}">
+        <textarea name="scenesJson" rows="16" th:text="${scenesJson}"></textarea>
+
+        <div th:if="${!#lists.isEmpty(sceneCharacters)}">
+            <h3>Character context <span class="muted">(optional)</span></h3>
+            <p class="muted">Describe each character's appearance once. It's added to the image
+                prompt of every scene they appear in, for consistent looks across illustrations.</p>
+            <table>
+                <thead><tr><th>Character</th><th>Appearance / clothing / distinguishing features</th></tr></thead>
+                <tbody>
+                <tr th:each="c : ${sceneCharacters}">
+                    <td>
+                        <input type="hidden" name="charName" th:value="${c}"/>
+                        <span th:text="${c}"></span>
+                    </td>
+                    <td><input type="text" name="charDesc" th:value="${characterProfiles[c]}"
+                               placeholder="e.g. a tall elf with silver hair, green leather armor, twin daggers"/></td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="btn-row">
+            <button type="submit">Generate images</button>
+        </div>
     </form>
 </section>
 
 <!-- Narration -->
-<section class="card" th:if="${story.narration}">
+<section class="card" th:if="${story.narration != null}">
     <h2>Chronicle</h2>
     <div class="prose" th:text="${story.narration}"></div>
 </section>
@@ -45,10 +222,10 @@
     <h2>Scenes</h2>
     <div class="gallery">
         <figure th:each="scene, it : ${story.scenes}">
-            <img th:if="${scene.imagePath}"
+            <img th:if="${scene.imagePath != null and !scene.imagePath.isBlank()}"
                  th:src="@{'/sessions/' + ${story.id} + '/images/' + ${#strings.substringAfter(scene.imagePath, 'images/')}}"
                  th:alt="${scene.title}"/>
-            <div th:unless="${scene.imagePath}" class="placeholder">rendering…</div>
+            <div th:unless="${scene.imagePath != null and !scene.imagePath.isBlank()}" class="placeholder">rendering…</div>
             <figcaption>
                 <strong th:text="${scene.title}"></strong>
                 <p th:text="${scene.narration}"></p>
@@ -58,7 +235,7 @@
 </section>
 
 <!-- Transcript -->
-<section class="card" th:if="${story.transcript}">
+<section class="card" th:if="${story.transcript != null}">
     <h2>Transcript <span class="muted" th:text="'(' + ${story.transcript.segments.size()} + ' segments)'"></span></h2>
     <details>
         <summary>Show raw diarized transcript</summary>
@@ -72,6 +249,9 @@
 </section>
 </body>
 </html>
+
+
+
 
 
 

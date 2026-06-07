@@ -9,12 +9,13 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class AppProperties {
 
     /** Root folder where each session's workspace (audio, transcript, images) is stored. */
-    private String dataDir = "./data";
+    private String dataDir = System.getProperty("user.home") + "/.story-telling/data";
 
     private final Transcription transcription = new Transcription();
     private final Image image = new Image();
     private final Llm llm = new Llm();
     private final Narration narration = new Narration();
+    private final Voice voice = new Voice();
 
     public static class Transcription {
         /** Base URL of the Python WhisperX FastAPI service. */
@@ -91,12 +92,30 @@ public class AppProperties {
         public void setChunkOverlapChars(int chunkOverlapChars) { this.chunkOverlapChars = chunkOverlapChars; }
     }
 
+    /** Voice-fingerprint matching: suggest campaign characters for known voices. */
+    public static class Voice {
+        /** Master switch for suggesting + enrolling speaker voiceprints. */
+        private boolean enabled = false;
+        /** Minimum cosine similarity (0..1) to suggest a character for a voice. */
+        private double matchThreshold = 0.6;
+        /** Max voiceprints kept per character (oldest dropped beyond this). */
+        private int maxVoiceprintsPerCharacter = 10;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public double getMatchThreshold() { return matchThreshold; }
+        public void setMatchThreshold(double matchThreshold) { this.matchThreshold = matchThreshold; }
+        public int getMaxVoiceprintsPerCharacter() { return maxVoiceprintsPerCharacter; }
+        public void setMaxVoiceprintsPerCharacter(int n) { this.maxVoiceprintsPerCharacter = n; }
+    }
+
     public String getDataDir() { return dataDir; }
     public void setDataDir(String dataDir) { this.dataDir = dataDir; }
     public Transcription getTranscription() { return transcription; }
     public Image getImage() { return image; }
     public Llm getLlm() { return llm; }
     public Narration getNarration() { return narration; }
+    public Voice getVoice() { return voice; }
 }
 
 

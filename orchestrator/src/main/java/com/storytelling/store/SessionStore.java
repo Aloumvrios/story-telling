@@ -33,7 +33,9 @@ public class SessionStore {
     private final ObjectMapper mapper;
 
     public SessionStore(AppProperties props, ObjectMapper mapper) {
-        this.root = Path.of(props.getDataDir());
+        // Normalize to an absolute path so directory containment checks (used by
+        // delete) are reliable regardless of relative "./data" style configs.
+        this.root = Path.of(props.getDataDir()).toAbsolutePath().normalize();
         this.mapper = mapper;
         try {
             Files.createDirectories(root);
@@ -108,11 +110,40 @@ public class SessionStore {
         }
     }
 
+    /** Permanently removes a session and all of its files (audio, json, images). */
+    public synchronized boolean delete(String id) {
+        Path dir = sessionDir(id).toAbsolutePath().normalize();
+        // Safety: only delete directories that live directly under the data root.
+        if (!dir.startsWith(root) || dir.equals(root) || !Files.isDirectory(dir)) {
+            return false;
+        }
+        try (var walk = Files.walk(dir)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    Files.deleteIfExists(p);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            });
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return !Files.exists(dir);
+    }
+
     public List<Session> listAll() {
         List<Session> sessions = new ArrayList<>();
         if (!Files.isDirectory(root)) return sessions;
         try (var stream = Files.list(root)) {
-            stream.filter(Files::isDirectory).forEach(dir -> load(dir.getFileName().toString()).ifPresent(sessions::add));
+            stream.filter(Files::isDirectory).forEach(dir -> {
+                // Be resilient: a single unreadable/partial session must not blank
+                // the entire list (e.g. after an interrupted delete).
+                try {
+                    load(dir.getFileName().toString()).ifPresent(sessions::add);
+                } catch (RuntimeException ignored) {
+                    // skip corrupt/partial session folder
+                }
+            });
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

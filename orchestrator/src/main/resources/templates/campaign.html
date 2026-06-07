@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <title th:text="'Campaign ' + ${campaign.name}">Campaign</title>
+    <link rel="stylesheet" th:href="@{/style.css}"/>
+</head>
+<body>
+<header>
+    <h1>🛡️ <span th:text="${campaign.name}"></span></h1>
+    <p><a th:href="@{/campaigns}">← all campaigns</a></p>
+    <p class="muted">Add the characters in this campaign. Each one's appearance is used to keep
+        Stable Diffusion consistent across every scene they appear in.</p>
+</header>
+
+<section class="card">
+    <h2>Characters</h2>
+    <form method="post" th:action="@{'/campaigns/' + ${campaign.id} + '/characters'}">
+        <table id="charTable">
+            <thead><tr><th>Character</th><th>Player</th><th>Appearance / clothing / features</th></tr></thead>
+            <tbody>
+            <tr th:each="ch : ${campaign.characters}">
+                <td><input type="text" name="charName" th:value="${ch.name}" placeholder="e.g. Lyra"/></td>
+                <td><input type="text" name="charPlayer" th:value="${ch.player}" placeholder="e.g. Alice"/></td>
+                <td><input type="text" name="charAppearance" th:value="${ch.appearance}"
+                           placeholder="a tall elf with silver hair, green leather armor, twin daggers"/></td>
+            </tr>
+            <!-- one blank row to add a new character -->
+            <tr>
+                <td><input type="text" name="charName" placeholder="e.g. Thrain"/></td>
+                <td><input type="text" name="charPlayer" placeholder="e.g. Bob"/></td>
+                <td><input type="text" name="charAppearance" placeholder="a stout dwarf with a red beard, plate armor"/></td>
+            </tr>
+            </tbody>
+        </table>
+        <div class="btn-row">
+            <button type="button" class="secondary" onclick="addCharRow()">+ Add another</button>
+            <button type="submit">Save characters</button>
+        </div>
+    </form>
+</section>
+
+<script>
+    function addCharRow() {
+        var body = document.querySelector('#charTable tbody');
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+            '<td><input type="text" name="charName" placeholder="character"/></td>' +
+            '<td><input type="text" name="charPlayer" placeholder="player"/></td>' +
+            '<td><input type="text" name="charAppearance" placeholder="appearance"/></td>';
+        body.appendChild(tr);
+    }
+</script>
+</body>
+</html>
+
