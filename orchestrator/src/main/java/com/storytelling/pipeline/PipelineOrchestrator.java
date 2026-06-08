@@ -159,13 +159,14 @@ public class PipelineOrchestrator {
 
         String rendered = TranscriptFormatter.render(session.getTranscript(), session.getSpeakerLabels());
         List<String> chunks = TranscriptFormatter.chunk(rendered, props.getNarration());
+        String dmNote = TranscriptFormatter.dmNote(session.getSpeakerLabels());
         log.info("[{}] narrating in {} chunks", session.getId(), chunks.size());
 
         String storySoFar = "";
         StringBuilder full = new StringBuilder();
         for (int i = 0; i < chunks.size(); i++) {
             log.info("[{}] narrating chunk {}/{}", session.getId(), i + 1, chunks.size());
-            String beat = narrationAssistant.summarizeChunk(storySoFar, chunks.get(i));
+            String beat = narrationAssistant.summarizeChunk(storySoFar, chunks.get(i), dmNote);
             full.append(beat).append("\n\n");
             storySoFar = tail(full.toString(), 2000); // rolling context window
         }
@@ -184,10 +185,17 @@ public class PipelineOrchestrator {
         store.save(session);
 
         Integer count = session.getRequestedSceneCount();
+        String dmNote = TranscriptFormatter.dmNote(session.getSpeakerLabels());
         SceneList sceneList = (count != null && count > 0)
-                ? narrationAssistant.segmentScenesInto(narration, count)
-                : narrationAssistant.segmentScenes(narration);
-        session.setScenes(new ArrayList<>(sceneList.scenes()));
+                ? narrationAssistant.segmentScenesInto(narration, count, dmNote)
+                : narrationAssistant.segmentScenes(narration, dmNote);
+        // Defence-in-depth: ensure the Dungeon Master never appears as a scene
+        // character (the prompt forbids it, but the LLM can still slip).
+        java.util.Set<String> dmAliases = TranscriptFormatter.dmAliases(session.getSpeakerLabels());
+        List<SceneSpec> scenes = sceneList.scenes().stream()
+                .map(s -> stripDmCharacters(s, dmAliases))
+                .toList();
+        session.setScenes(new ArrayList<>(scenes));
         store.save(session);
         log.info("[{}] segmented into {} scenes{}", session.getId(), session.getScenes().size(),
                 (count != null && count > 0) ? " (requested " + count + ")" : "");
@@ -207,9 +215,12 @@ public class PipelineOrchestrator {
         Files.createDirectories(imagesDir);
 
         Map<String, String> characterContext = characterContext(session);
+        java.util.Set<String> dmAliases = TranscriptFormatter.dmAliases(session.getSpeakerLabels());
         List<SceneSpec> withImages = new ArrayList<>();
         for (int i = 0; i < scenes.size(); i++) {
-            SceneSpec scene = scenes.get(i);
+            // Strip the Dungeon Master from the character list so it never reaches
+            // Stable Diffusion (covers sessions created directly from scenes too).
+            SceneSpec scene = stripDmCharacters(scenes.get(i), dmAliases);
             String prompt = withCharacterContext(scene, characterContext);
             log.info("[{}] image {}/{}: {}", session.getId(), i + 1, scenes.size(), scene.title());
             byte[] png = imageClient.generate(prompt);
@@ -221,6 +232,20 @@ public class PipelineOrchestrator {
             store.save(session); // persist after each image (resumable)
         }
         session.setScenes(withImages);
+    }
+
+    /** Removes any Dungeon Master aliases from a scene's character list. */
+    private static SceneSpec stripDmCharacters(SceneSpec scene, java.util.Set<String> dmAliases) {
+        if (scene.characters() == null || scene.characters().isEmpty() || dmAliases.isEmpty()) {
+            return scene;
+        }
+        List<String> filtered = scene.characters().stream()
+                .filter(c -> c != null && !c.isBlank())
+                .filter(c -> !dmAliases.contains(c.strip().toLowerCase()))
+                .collect(java.util.stream.Collectors.toList());
+        if (filtered.size() == scene.characters().size()) return scene;
+        return new SceneSpec(scene.title(), scene.narration(), scene.imagePrompt(),
+                filtered, scene.imagePath());
     }
 
     /** Lower-cased name -> appearance, for matching scene characters case-insensitively. */
@@ -248,11 +273,11 @@ public class PipelineOrchestrator {
             if (character == null) continue;
             String appearance = context.get(character.strip().toLowerCase());
             if (appearance != null) {
-                if (details.length() > 0) details.append("; ");
+                if (!details.isEmpty()) details.append("; ");
                 details.append(character.strip()).append(": ").append(appearance);
             }
         }
-        return details.length() == 0
+        return details.isEmpty()
                 ? scene.imagePrompt()
                 : scene.imagePrompt() + ". Character appearance — " + details + ".";
     }

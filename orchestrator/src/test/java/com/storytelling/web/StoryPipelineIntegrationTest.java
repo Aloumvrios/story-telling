@@ -90,9 +90,9 @@ class StoryPipelineIntegrationTest {
         when(transcriptionClient.transcribe(any())).thenReturn(new TranscriptResult("en", List.of(
                 new SpeakerSegment(0, 3, "SPEAKER_00", "We enter the ruined keep."),
                 new SpeakerSegment(3, 6, "SPEAKER_01", "I light a torch and look around."))));
-        when(narrationAssistant.summarizeChunk(anyString(), anyString()))
+        when(narrationAssistant.summarizeChunk(anyString(), anyString(), anyString()))
                 .thenReturn("The party stepped into the ruined keep, torchlight flickering.");
-        when(narrationAssistant.segmentScenes(anyString())).thenReturn(new SceneList(List.of(
+        when(narrationAssistant.segmentScenes(anyString(), anyString())).thenReturn(new SceneList(List.of(
                 new SceneSpec("Into the Keep", "They entered the ruined keep.",
                         "a ruined stone keep lit by torchlight", List.of("Lyra"), ""),
                 new SceneSpec("Torchlight", "A torch revealed ancient halls.",

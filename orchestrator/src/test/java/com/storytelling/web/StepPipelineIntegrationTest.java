@@ -98,7 +98,7 @@ class StepPipelineIntegrationTest {
 
     @Test
     void labelsInStepMode_runsNarrationOnlyAndPausesAtNarrated() throws Exception {
-        when(narrationAssistant.summarizeChunk(anyString(), anyString())).thenReturn("A quiet beat.");
+        when(narrationAssistant.summarizeChunk(anyString(), anyString(), anyString())).thenReturn("A quiet beat.");
         String id = persisted(awaitingLabels("step-narrate"));
 
         mockMvc.perform(post("/sessions/{id}/labels", id)
@@ -115,7 +115,7 @@ class StepPipelineIntegrationTest {
 
     @Test
     void campaignLabeling_autoFillsPlayerAndCarriesAppearanceProfiles() throws Exception {
-        when(narrationAssistant.summarizeChunk(anyString(), anyString())).thenReturn("A beat.");
+        when(narrationAssistant.summarizeChunk(anyString(), anyString(), anyString())).thenReturn("A beat.");
 
         com.storytelling.model.Campaign campaign = new com.storytelling.model.Campaign("campX", "Crimson Keep");
         campaign.setCharacters(List.of(
@@ -167,7 +167,7 @@ class StepPipelineIntegrationTest {
 
     @Test
     void runSegmentationStep_thenRunImages_completesPipeline() throws Exception {
-        when(narrationAssistant.segmentScenes(anyString())).thenReturn(twoScenes());
+        when(narrationAssistant.segmentScenes(anyString(), anyString())).thenReturn(twoScenes());
         when(imageClient.generate(anyString())).thenReturn(pngBytes());
 
         Session s = new Session("seg-step", "(pasted narration)");
@@ -193,7 +193,7 @@ class StepPipelineIntegrationTest {
 
     @Test
     void runSegmentationWithSceneCount_usesExactCountAndPersistsIt() throws Exception {
-        when(narrationAssistant.segmentScenesInto(anyString(), anyInt())).thenReturn(twoScenes());
+        when(narrationAssistant.segmentScenesInto(anyString(), anyInt(), anyString())).thenReturn(twoScenes());
 
         Session s = new Session("seg-count", "(pasted narration)");
         s.setNarration("A long chronicle.");
@@ -205,7 +205,7 @@ class StepPipelineIntegrationTest {
                         .param("sceneCount", "3"))
                 .andExpect(status().is3xxRedirection());
 
-        verify(narrationAssistant).segmentScenesInto(anyString(), eq(3));
+        verify(narrationAssistant).segmentScenesInto(anyString(), eq(3), anyString());
         Session result = store.load("seg-count").orElseThrow();
         assertThat(result.getRequestedSceneCount()).isEqualTo(3);
         assertThat(result.getStatus()).isEqualTo(SessionStatus.SEGMENTED);
@@ -213,7 +213,7 @@ class StepPipelineIntegrationTest {
 
     @Test
     void runSegmentationWithoutSceneCount_usesDefaultRangeMethod() throws Exception {
-        when(narrationAssistant.segmentScenes(anyString())).thenReturn(twoScenes());
+        when(narrationAssistant.segmentScenes(anyString(), anyString())).thenReturn(twoScenes());
 
         Session s = new Session("seg-default", "(pasted narration)");
         s.setNarration("Another chronicle.");
@@ -223,7 +223,7 @@ class StepPipelineIntegrationTest {
         mockMvc.perform(post("/sessions/{id}/run-segmentation", "seg-default").param("mode", "step"))
                 .andExpect(status().is3xxRedirection());
 
-        verify(narrationAssistant).segmentScenes(anyString());
+        verify(narrationAssistant).segmentScenes(anyString(), anyString());
         assertThat(store.load("seg-default").orElseThrow().getRequestedSceneCount()).isNull();
     }
 
@@ -419,7 +419,7 @@ class StepPipelineIntegrationTest {
 
     @Test
     void retry_failedAfterNarration_resumesAtSegmentation() throws Exception {
-        when(narrationAssistant.segmentScenes(anyString())).thenReturn(twoScenes());
+        when(narrationAssistant.segmentScenes(anyString(), anyString())).thenReturn(twoScenes());
         when(imageClient.generate(anyString())).thenReturn(pngBytes());
         Session s = new Session("retry-seg", "x.m4a");
         s.setNarration("A finished chronicle.");

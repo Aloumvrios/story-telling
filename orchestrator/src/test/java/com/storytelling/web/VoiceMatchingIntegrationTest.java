@@ -102,7 +102,7 @@ class VoiceMatchingIntegrationTest {
 
     @Test
     void enrollsVoiceprint_onLabelConfirmation() throws Exception {
-        when(narrationAssistant.summarizeChunk(anyString(), anyString())).thenReturn("A beat.");
+        when(narrationAssistant.summarizeChunk(anyString(), anyString(), anyString())).thenReturn("A beat.");
 
         Campaign campaign = new Campaign("vc2", "Learning Keep");
         campaign.setCharacters(List.of(new CampaignCharacter("Thrain", "Bob", "a dwarf"))); // no voiceprints yet

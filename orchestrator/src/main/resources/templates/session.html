@@ -78,7 +78,7 @@
         <table>
             <thead><tr>
                 <th th:if="${hasAudio}">Sample</th>
-                <th>Voice</th><th>Player</th><th>Character</th>
+                <th>Voice</th><th>Player</th><th>Character</th><th title="The narrator/referee who voices all NPCs and the environment">DM?</th>
             </tr></thead>
             <tbody>
             <tr th:each="sp : ${speakerSamples}">
@@ -108,6 +108,12 @@
                 <td th:unless="${!#lists.isEmpty(campaignCharacters)}">
                     <input type="text" th:name="'character_' + ${sp.speaker}"
                            th:value="${existingLabels[sp.speaker]?.character}" placeholder="e.g. Lyra the Rogue"/>
+                </td>
+                <!-- Dungeon Master: narrator who voices all NPCs and the environment -->
+                <td style="text-align:center">
+                    <input type="checkbox" class="dm-check" th:name="'dm_' + ${sp.speaker}" value="true"
+                           th:checked="${existingLabels[sp.speaker]?.dungeonMaster}"
+                           title="This voice is the Dungeon Master (narrator/NPCs), not a single player character"/>
                 </td>
             </tr>
             </tbody>

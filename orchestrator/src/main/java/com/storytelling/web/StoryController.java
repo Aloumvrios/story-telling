@@ -222,13 +222,14 @@ public class StoryController {
         for (String raw : distinctSpeakers(session)) {
             String player = params.get("player_" + raw);
             String character = params.get("character_" + raw);
+            boolean dm = params.get("dm_" + raw) != null; // checkbox present == DM
             // If a campaign character was picked, fill in the player from the campaign
             // when the form didn't provide one.
             CampaignCharacter cc = findCampaignCharacter(campaign, character);
             if (cc != null && (player == null || player.isBlank())) {
                 player = cc.player();
             }
-            labels.add(new SpeakerLabel(raw, player, character));
+            labels.add(new SpeakerLabel(raw, player, character, dm));
         }
         session.setSpeakerLabels(labels);
         // Carry the campaign's character appearances into the session so they flow
@@ -259,6 +260,7 @@ public class StoryController {
         int cap = Math.max(1, props.getVoice().getMaxVoiceprintsPerCharacter());
         boolean changed = false;
         for (SpeakerLabel label : labels) {
+            if (label.dungeonMaster()) continue; // DM is the narrator/NPCs, not a character
             float[] embedding = embeddings.get(label.rawLabel());
             CampaignCharacter cc = findCampaignCharacter(campaign, label.character());
             if (embedding == null || cc == null) continue;

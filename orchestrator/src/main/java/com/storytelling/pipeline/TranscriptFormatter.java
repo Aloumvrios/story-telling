@@ -15,6 +15,9 @@ import com.storytelling.model.TranscriptResult;
  */
 public final class TranscriptFormatter {
 
+    /** Display name used for any voice flagged as the Dungeon Master. */
+    public static final String DM_NAME = "Dungeon Master";
+
     private TranscriptFormatter() {
     }
 
@@ -31,7 +34,48 @@ public final class TranscriptFormatter {
         return sb.toString();
     }
 
+    /**
+     * Builds a guidance note (or empty string) telling the narration LLM which
+     * lines belong to the Dungeon Master, so the DM is treated as the narrator
+     * and the many NPCs/environment rather than a single player character.
+     */
+    public static String dmNote(List<SpeakerLabel> labels) {
+        boolean hasDm = labels != null && labels.stream().anyMatch(SpeakerLabel::dungeonMaster);
+        if (!hasDm) return "";
+        return "NOTE: Lines attributed to \"" + DM_NAME + "\" are spoken by the Dungeon Master "
+                + "(the narrator/referee), not a player character. The Dungeon Master voices "
+                + "every non-player character (NPCs) — tavern keepers, merchants, monsters, gods — "
+                + "and narrates the world, scenery and outcomes. Treat each such line as narration "
+                + "or as whichever NPC, creature or environment the context implies; never as a "
+                + "single recurring hero.";
+    }
+
+    /**
+     * Lower-cased aliases that must never appear in a scene's character list because
+     * they refer to the Dungeon Master (the narrator/NPCs), not a being to illustrate.
+     * Always includes the generic terms; adds the player/character/raw names of any
+     * speaker flagged as the DM.
+     */
+    public static java.util.Set<String> dmAliases(List<SpeakerLabel> labels) {
+        java.util.Set<String> aliases = new java.util.HashSet<>();
+        aliases.add(DM_NAME.toLowerCase());
+        aliases.add("dm");
+        aliases.add("the dungeon master");
+        aliases.add("game master");
+        aliases.add("gm");
+        aliases.add("narrator");
+        if (labels == null) return aliases;
+        for (SpeakerLabel l : labels) {
+            if (!l.dungeonMaster()) continue;
+            if (l.character() != null && !l.character().isBlank()) aliases.add(l.character().strip().toLowerCase());
+            if (l.player() != null && !l.player().isBlank()) aliases.add(l.player().strip().toLowerCase());
+            if (l.rawLabel() != null && !l.rawLabel().isBlank()) aliases.add(l.rawLabel().strip().toLowerCase());
+        }
+        return aliases;
+    }
+
     private static String displayName(SpeakerLabel l) {
+        if (l.dungeonMaster()) return DM_NAME;
         if (l.character() != null && !l.character().isBlank()) return l.character();
         if (l.player() != null && !l.player().isBlank()) return l.player();
         return l.rawLabel();

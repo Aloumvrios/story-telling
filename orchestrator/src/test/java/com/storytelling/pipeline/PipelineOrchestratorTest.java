@@ -85,8 +85,8 @@ class PipelineOrchestratorTest {
         session.setStatus(SessionStatus.AWAITING_LABELS);
         store.save(session);
 
-        when(narrationAssistant.summarizeChunk(anyString(), anyString())).thenReturn("A heroic beat.");
-        when(narrationAssistant.segmentScenes(anyString())).thenReturn(new SceneList(List.of(
+        when(narrationAssistant.summarizeChunk(anyString(), anyString(), anyString())).thenReturn("A heroic beat.");
+        when(narrationAssistant.segmentScenes(anyString(), anyString())).thenReturn(new SceneList(List.of(
                 new SceneSpec("The Gate", "They reached the gate.", "a stone gate at dusk", List.of("Lyra"), ""),
                 new SceneSpec("The Battle", "A fight broke out.", "a fierce sword fight", List.of("Thrain"), ""))));
         when(imageClient.generate(anyString())).thenReturn(new byte[]{(byte) 0x89, 'P', 'N', 'G'});
